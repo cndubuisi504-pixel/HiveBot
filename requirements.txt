@@ -1,3 +1,5 @@
 python-telegram-bot
-google-generativeai
+anthropic
+pymongo
+dnspython
 python-dotenv
