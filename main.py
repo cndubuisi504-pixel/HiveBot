@@ -1,5 +1,8 @@
 import os
 import random
+import threading
+import http.server
+import socketserver
 import anthropic
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -43,7 +46,7 @@ def get_history(user_id):
 def save_history(user_id, history):
     collection.update_one(
         {"user_id": user_id},
-        {"$set": {"history": history[-30:]}}, # Keep last 30 turns
+        {"$set": {"history": history[-30:]}}, 
         upsert=True
     )
 
@@ -81,11 +84,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     prompt = BUTTON_QUESTIONS.get(query.data)
     if query.data == "q_quiz":
         prompt = f"Give me a quiz question about {random.choice(QUIZ_TOPICS)}. A/B/C/D options only."
-    
     if prompt:
         reply = await ask_claude(query.from_user.id, prompt)
         await context.bot.send_message(chat_id=query.message.chat_id, text=reply, parse_mode="Markdown")
@@ -94,10 +95,21 @@ async def reset_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     collection.delete_one({"user_id": update.effective_user.id})
     await update.message.reply_text("🔄 Memory wiped. Send /start to begin again.")
 
+def run_health_check():
+    port = int(os.environ.get("PORT", 8000))
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", port), handler) as httpd:
+        httpd.serve_forever()
+
 if __name__ == "__main__":
+    # Start health check in background
+    threading.Thread(target=run_health_check, daemon=True).start()
+    
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("new", reset_chat))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("🐝 Professor Hive is online!")
     app.run_polling()
